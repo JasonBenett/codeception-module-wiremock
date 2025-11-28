@@ -1,0 +1,9 @@
+actor: FunctionalTester
+modules:
+    enabled:
+        - \JasonBenett\CodeceptionModuleWiremock\Module\Wiremock:
+            host: localhost
+            port: 8080
+            cleanupBefore: test
+            preserveFileMappings: true
+        - Asserts

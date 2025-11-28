@@ -1,0 +1,17 @@
+namespace: Tests
+paths:
+    tests: tests
+    output: tests/_output
+    data: tests/_data
+    support: tests/_support
+settings:
+    colors: true
+    memory_limit: 1024M
+
+modules:
+    config:
+        \JasonBenett\CodeceptionModuleWiremock\Module\Wiremock:
+            host: localhost
+            port: 8080
+            cleanupBefore: test
+            preserveFileMappings: true
