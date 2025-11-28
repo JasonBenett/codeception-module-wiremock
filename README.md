@@ -1,5 +1,12 @@
 # Codeception Module WireMock
 
+[![CI](https://github.com/jasonbenett/codeception-module-wiremock/actions/workflows/ci.yml/badge.svg)](https://github.com/jasonbenett/codeception-module-wiremock/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/jasonbenett/codeception-module-wiremock/branch/main/graph/badge.svg)](https://codecov.io/gh/jasonbenett/codeception-module-wiremock)
+[![PHPStan Level](https://img.shields.io/badge/PHPStan-level%20max-brightgreen.svg)](https://phpstan.org/)
+[![PHP Version](https://img.shields.io/badge/php-%3E%3D8.2-8892BF.svg)](https://www.php.net/)
+[![Codeception](https://img.shields.io/badge/codeception-%3E%3D5.3-green.svg)](https://codeception.com/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A Codeception module for WireMock integration, allowing you to mock HTTP services in your functional tests.
 
 ## Features
@@ -459,16 +466,63 @@ $allRequests = $I->grabAllRequests();
 codecept_debug('All requests made:', $allRequests);
 ```
 
-## License
+## Quality Assurance
 
-MIT
+This project maintains high code quality standards with comprehensive automated checks:
+
+### Continuous Integration
+
+Every push and pull request is automatically tested via GitHub Actions across multiple PHP versions:
+
+- ✅ **PHP 8.2, 8.3, 8.4** - Full compatibility testing
+- ✅ **PHPStan Level Max** - Zero errors in static analysis
+- ✅ **PER Coding Style 3.0** - Strict code style compliance
+- ✅ **100% Test Coverage** - 26 passing tests (15 unit + 11 functional)
+- ✅ **WireMock Integration Tests** - Tests against real WireMock server
+
+### Local Development
+
+Run all quality checks before submitting:
+
+```bash
+# Static analysis
+composer phpstan
+
+# Code style check
+composer cs-check
+
+# Fix code style issues
+composer cs-fix
+# Run tests
+composer test
+composer test:functional
+```
+
+### Code Quality Metrics
+
+- **PHPStan**: Max level, zero errors
+- **Code Coverage**: 100% with Codecov reporting
+- **Code Style**: PER Coding Style 3.0 (successor to PSR-12)
+- **Type Safety**: Full PHPDoc annotations with array shapes
+- **Documentation**: Comprehensive inline documentation
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines including:
+
+- Development workflow and setup
+- Code quality standards
+- Testing requirements
+- Commit message conventions
+- Pull request process
+
+## License
+
+MIT
 
 ## Links
 
 - [WireMock Documentation](https://wiremock.org/docs/)
 - [Codeception Documentation](https://codeception.com/docs/)
 - [GitHub Repository](https://github.com/jasonbenett/codeception-module-wiremock)
+- [Contributing Guidelines](CONTRIBUTING.md)

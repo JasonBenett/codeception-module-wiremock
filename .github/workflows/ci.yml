@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  tests:
+    name: PHP ${{ matrix.php-version }} Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.2', '8.3', '8.4']
+
+    services:
+      wiremock:
+        image: wiremock/wiremock:latest
+        ports:
+          - 8080:8080
+        options: >-
+          --health-cmd "curl -f http://localhost:8080/__admin/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --health-start-period 10s
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: json, mbstring
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate composer.json and composer.lock
+        run: composer validate --strict
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ runner.os }}-php-${{ matrix.php-version }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-${{ matrix.php-version }}-composer-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-suggest
+
+      - name: Wait for WireMock to be ready
+        run: |
+          timeout 30 bash -c 'until curl -f http://localhost:8080/__admin/health; do sleep 1; done'
+
+      - name: Run PHPStan
+        run: composer phpstan
+
+      - name: Run code style check
+        run: composer cs-check
+
+      - name: Run unit tests
+        run: composer test
+
+      - name: Build Codeception support classes
+        run: vendor/bin/codecept build
+
+      - name: Run functional tests
+        run: composer test:functional
+
+  code-coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+
+    services:
+      wiremock:
+        image: wiremock/wiremock:latest
+        ports:
+          - 8080:8080
+        options: >-
+          --health-cmd "curl -f http://localhost:8080/__admin/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --health-start-period 10s
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: json, mbstring
+          coverage: xdebug
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-suggest
+
+      - name: Wait for WireMock to be ready
+        run: |
+          timeout 30 bash -c 'until curl -f http://localhost:8080/__admin/health; do sleep 1; done'
+
+      - name: Build Codeception support classes
+        run: vendor/bin/codecept build
+
+      - name: Run unit tests with coverage
+        run: vendor/bin/phpunit --coverage-clover coverage-unit.xml
+
+      - name: Run functional tests with coverage
+        run: vendor/bin/codecept run functional --coverage-xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage-unit.xml,./tests/_output/coverage.xml
+          flags: unittests,functional
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
