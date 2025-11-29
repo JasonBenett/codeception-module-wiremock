@@ -7,36 +7,44 @@ namespace JasonBenett\CodeceptionModuleWiremock\Module;
 use Codeception\Exception\ModuleException;
 use Codeception\Module;
 use Codeception\TestInterface;
-use GuzzleHttp\Client;
-use GuzzleHttp\Exception\GuzzleException;
 use JasonBenett\CodeceptionModuleWiremock\Exception\RequestVerificationException;
 use JasonBenett\CodeceptionModuleWiremock\Exception\WiremockException;
 use JsonException;
+use Psr\Http\Client\ClientExceptionInterface;
+use Psr\Http\Client\ClientInterface;
+use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\StreamFactoryInterface;
 
 class Wiremock extends Module
 {
+    /** HTTP status code threshold for error responses (400+) */
+    private const HTTP_BAD_REQUEST = 400;
+
     /** @var array<string, mixed> Module configuration */
     protected array $config = [
         'host' => '127.0.0.1',
         'port' => 8080,
         'protocol' => 'http',
-        'timeout' => 10.0,
         'cleanupBefore' => 'test',      // Options: 'never', 'test', 'suite'
         'preserveFileMappings' => true,
-        'verifySSL' => true,
         'adminPath' => '/__admin',
+        'httpClient' => null,           // PSR-18 ClientInterface instance
+        'requestFactory' => null,       // PSR-17 RequestFactoryInterface instance
+        'streamFactory' => null,        // PSR-17 StreamFactoryInterface instance
     ];
 
     /** @var array<int, string> Required configuration fields */
     protected array $requiredFields = ['host', 'port'];
 
-    protected ?Client $client = null;
+    protected ClientInterface $httpClient;
+    protected RequestFactoryInterface $requestFactory;
+    protected StreamFactoryInterface $streamFactory;
     protected string $baseUrl;
 
     /**
-     * Initialize the module - create HTTP client and verify connectivity
+     * Initialize the module - validate PSR dependencies and verify connectivity
      *
-     * @throws ModuleException
+     * @throws ModuleException If configuration is invalid or WireMock is not accessible
      */
     public function _initialize(): void
     {
@@ -57,27 +65,24 @@ class Wiremock extends Module
             $adminPath,
         );
 
-        $this->client = new Client([
-            'base_uri' => $this->baseUrl . '/',
-            'timeout' => $this->config['timeout'],
-            'verify' => $this->config['verifySSL'],
-            'http_errors' => false,
-        ]);
+        $this->initHttpClient();
+        $this->initRequestFactory();
+        $this->initStreamFactory();
 
-        // Verify WireMock is accessible
         try {
-            $response = $this->client->request('GET', 'health');
+            $request = $this->requestFactory->createRequest('GET', $this->baseUrl . '/health');
+            $response = $this->httpClient->sendRequest($request);
 
-            if ($response->getStatusCode() >= 400) {
+            if ($response->getStatusCode() >= self::HTTP_BAD_REQUEST) {
                 throw new ModuleException(
                     $this,
-                    "WireMock health check failed at {$this->baseUrl}/health",
+                    sprintf('WireMock health check failed at %s/health', $this->baseUrl),
                 );
             }
-        } catch (GuzzleException $exception) {
+        } catch (ClientExceptionInterface $exception) {
             throw new ModuleException(
                 $this,
-                "Cannot connect to WireMock at {$this->baseUrl}: " . $exception->getMessage(),
+                sprintf('Cannot connect to WireMock at %s: %s', $this->baseUrl, $exception->getMessage()),
             );
         }
     }
@@ -192,12 +197,12 @@ class Wiremock extends Module
         if ($count === 0) {
             // Try to get near misses for better error message
             $nearMissesData = $this->fetchNearMisses($pattern);
-            $message = "Expected request not found: {$method} {$url}";
+            $message = sprintf('Expected request not found: %s %s', $method, $url);
 
             $nearMisses = $nearMissesData['nearMisses'] ?? null;
             if (is_array($nearMisses) && !empty($nearMisses)) {
                 /** @var array<int, array<string, mixed>> $nearMisses */
-                $message .= "\n\nNear misses found:\n" . $this->formatNearMisses($nearMisses);
+                $message = sprintf("%s\n\nNear misses found:\n%s", $message, $this->formatNearMisses($nearMisses));
             }
 
             throw new RequestVerificationException($message);
@@ -231,7 +236,7 @@ class Wiremock extends Module
 
         if ($count > 0) {
             throw new RequestVerificationException(
-                "Unexpected request found: {$method} {$url} (found {$count} match(es))",
+                sprintf('Unexpected request found: %s %s (found %d match(es))', $method, $url, $count),
             );
         }
 
@@ -254,7 +259,7 @@ class Wiremock extends Module
 
         if ($actualCount !== $expectedCount) {
             throw new RequestVerificationException(
-                "Expected {$expectedCount} request(s), but found {$actualCount}",
+                sprintf('Expected %d request(s), but found %d', $expectedCount, $actualCount),
             );
         }
 
@@ -365,7 +370,7 @@ class Wiremock extends Module
     }
 
     /**
-     * Make HTTP request to WireMock Admin API
+     * Make HTTP request to WireMock Admin API using PSR-18/PSR-17
      *
      * @param string $method HTTP method
      * @param string $endpoint Admin API endpoint (relative to admin path)
@@ -374,31 +379,37 @@ class Wiremock extends Module
      * @return array<string, mixed> Response data decoded from JSON
      *
      * @throws WiremockException If WireMock request fails or communication fails
-     * @throws JsonException If JSON decoding fails
+     * @throws JsonException If JSON encoding fails
      */
     protected function makeAdminRequest(
         string $method,
         string $endpoint,
         array  $data = [],
     ): array {
-        if ($this->client === null) {
-            throw new WiremockException('HTTP client is not initialized');
-        }
+        $uri = $this->baseUrl . '/' . ltrim($endpoint, '/');
 
         try {
-            $options = [];
+            $request = $this->requestFactory->createRequest($method, $uri);
 
             if (!empty($data)) {
-                $options['json'] = $data;
+                $jsonBody = json_encode($data, JSON_THROW_ON_ERROR);
+                $stream = $this->streamFactory->createStream($jsonBody);
+                $request = $request
+                    ->withBody($stream)
+                    ->withHeader('Content-Type', 'application/json');
             }
 
-            $response = $this->client->request($method, $endpoint, $options);
+            $response = $this->httpClient->sendRequest($request);
             $statusCode = $response->getStatusCode();
             $body = (string) $response->getBody();
 
-            if ($statusCode >= 400) {
+            if ($statusCode >= self::HTTP_BAD_REQUEST) {
                 throw new WiremockException(
-                    "WireMock request failed with status {$statusCode}: {$body}",
+                    sprintf(
+                        'WireMock request failed with status %d: %s',
+                        $statusCode,
+                        $body,
+                    ),
                 );
             }
 
@@ -415,9 +426,9 @@ class Wiremock extends Module
             /** @var array<string, mixed> $decoded */
             return $decoded;
 
-        } catch (GuzzleException $exception) {
+        } catch (ClientExceptionInterface $exception) {
             throw new WiremockException(
-                'Failed to communicate with WireMock: ' . $exception->getMessage(),
+                sprintf('Failed to communicate with WireMock: %s', $exception->getMessage()),
                 0,
                 $exception,
             );
@@ -484,5 +495,117 @@ class Wiremock extends Module
         }
 
         return implode("\n", $output);
+    }
+
+    /**
+     * Get HTTP client from config or create default Guzzle client
+     *
+     * @return void
+     *
+     * @throws ModuleException If no client provided and Guzzle is not available
+     */
+    private function initHttpClient(): void
+    {
+        $httpClient = $this->config['httpClient'];
+
+        if ($httpClient === null) {
+            if (!class_exists('\\GuzzleHttp\\Client')) {
+                throw new ModuleException(
+                    $this,
+                    'No httpClient provided and GuzzleHTTP is not available. Either provide a PSR-18 ClientInterface or install guzzlehttp/guzzle.',
+                );
+            }
+
+            $this->httpClient = new \GuzzleHttp\Client([
+                'timeout' => 10.0,
+                'http_errors' => false,
+            ]);
+
+            return;
+        }
+
+        if (!$httpClient instanceof ClientInterface) {
+            throw new ModuleException(
+                $this,
+                sprintf('Configuration "httpClient" must be an instance of %s', ClientInterface::class),
+            );
+        }
+
+        $this->httpClient = $httpClient;
+    }
+
+    /**
+     * Get request factory from config or create default Guzzle factory
+     *
+     * @return void
+     *
+     * @throws ModuleException If no factory provided and Guzzle PSR-7 is not available
+     */
+    private function initRequestFactory(): void
+    {
+        $requestFactory = $this->config['requestFactory'];
+
+        if ($requestFactory === null) {
+            if (!class_exists('\\GuzzleHttp\\Psr7\\HttpFactory')) {
+                throw new ModuleException(
+                    $this,
+                    'No requestFactory provided and GuzzleHTTP PSR-17 factory is not available. Either provide a PSR-17 RequestFactoryInterface or install guzzlehttp/psr7.',
+                );
+            }
+
+            $this->requestFactory = new \GuzzleHttp\Psr7\HttpFactory();
+
+            return;
+        }
+
+        if (!$requestFactory instanceof RequestFactoryInterface) {
+            throw new ModuleException(
+                $this,
+                sprintf('Configuration "requestFactory" must be an instance of %s', RequestFactoryInterface::class),
+            );
+        }
+
+        $this->requestFactory = $requestFactory;
+    }
+
+    /**
+     * Get stream factory from config or create default factory
+     *
+     * @return void
+     *
+     * @throws ModuleException If no factory provided and no compatible factory available
+     */
+    private function initStreamFactory(): void
+    {
+        $streamFactory = $this->config['streamFactory'];
+
+        if ($streamFactory === null) {
+            if ($this->requestFactory instanceof StreamFactoryInterface) {
+                $this->streamFactory = $this->requestFactory;
+
+                return;
+            }
+
+            // Otherwise create Guzzle PSR-17 factory
+            if (class_exists('\\GuzzleHttp\\Psr7\\HttpFactory')) {
+                $this->streamFactory = new \GuzzleHttp\Psr7\HttpFactory();
+
+                return;
+            }
+
+            throw new ModuleException(
+                $this,
+                'No streamFactory provided and GuzzleHTTP PSR-17 factory is not available. Either provide a PSR-17 StreamFactoryInterface or install guzzlehttp/psr7.',
+            );
+        }
+
+        if (!$streamFactory instanceof StreamFactoryInterface) {
+            throw new ModuleException(
+                $this,
+                sprintf('Configuration "streamFactory" must be an instance of %s', StreamFactoryInterface::class),
+            );
+        }
+
+        $this->streamFactory = $streamFactory;
     }
 }

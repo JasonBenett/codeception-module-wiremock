@@ -23,6 +23,8 @@ A Codeception module for WireMock integration, allowing you to mock HTTP service
 
 - PHP 8.2 or higher
 - Codeception 5.3 or higher
+- A PSR-18 HTTP Client implementation (e.g., Guzzle, Symfony HttpClient)
+- A PSR-17 HTTP Factory implementation (e.g., guzzlehttp/psr7)
 - A running WireMock server
 
 ## Installation
@@ -33,6 +35,35 @@ Install via Composer:
 composer require jasonbenett/codeception-module-wiremock
 ```
 
+This module depends on PSR-18 (HTTP Client) and PSR-17 (HTTP Factories) interfaces. You'll need to install a compatible implementation:
+
+**Using Guzzle (recommended):**
+```bash
+composer require guzzlehttp/guzzle
+```
+
+**Using Symfony HttpClient:**
+```bash
+composer require symfony/http-client nyholm/psr7
+```
+
+**Other PSR-18/PSR-17 implementations work as well.**
+
+## Architecture
+
+This module follows **PSR-18** (HTTP Client) and **PSR-17** (HTTP Factories) standards, providing true dependency inversion:
+
+- **No hard dependency on Guzzle** - Use any PSR-compliant HTTP client
+- **Framework agnostic** - Works with Symfony HttpClient, Guzzle, or custom clients
+- **Optional auto-discovery** - Automatically creates Guzzle instances if available
+- **Full control** - Inject your own configured PSR clients for advanced scenarios
+
+This approach allows you to:
+- Choose your preferred HTTP client library
+- Control HTTP client configuration (timeouts, SSL, proxies, etc.)
+- Test with mock PSR-18 clients
+- Upgrade HTTP client versions independently
+
 ## Quick Start
 
 ### 1. Start WireMock Server
@@ -41,12 +72,6 @@ Using Docker (recommended):
 
 ```bash
 docker run -d -p 8080:8080 wiremock/wiremock:latest
-```
-
-Or use the included `docker-compose.yml`:
-
-```bash
-docker-compose up -d
 ```
 
 ### 2. Configure Codeception
@@ -88,7 +113,9 @@ class ApiTestCest
 
 ## Configuration Options
 
-All configuration options and their defaults:
+### Basic Configuration (Auto-Discovery)
+
+When using Guzzle, the module can auto-create PSR client instances:
 
 ```yaml
 modules:
@@ -97,12 +124,64 @@ modules:
         host: 127.0.0.1              # WireMock server host
         port: 8080                   # WireMock server port
         protocol: http               # Protocol (http or https)
-        timeout: 10.0                # Request timeout in seconds
         cleanupBefore: test          # When to cleanup: 'never', 'test', or 'suite'
         preserveFileMappings: true   # Keep file-based stubs on reset
-        verifySSL: true              # Verify SSL certificates
         adminPath: /__admin          # Admin API path
 ```
+
+### Advanced Configuration (Custom PSR Clients)
+
+For full control and dependency inversion, provide your own PSR-18/PSR-17 implementations:
+
+```php
+// tests/_bootstrap.php or tests/_support/Helper/HttpClientProvider.php
+
+use GuzzleHttp\Client;
+use GuzzleHttp\Psr7\HttpFactory;
+
+// Create PSR-18 HTTP Client
+$httpClient = new Client([
+    'timeout' => 10.0,
+    'verify' => false,  // Disable SSL verification if needed
+    'http_errors' => false,
+]);
+
+// Create PSR-17 factories (Guzzle's HttpFactory implements both interfaces)
+$httpFactory = new HttpFactory();
+
+// Store in global for Codeception access
+$GLOBALS['wiremock_http_client'] = $httpClient;
+$GLOBALS['wiremock_request_factory'] = $httpFactory;
+$GLOBALS['wiremock_stream_factory'] = $httpFactory;
+```
+
+```yaml
+# codeception.yml or suite config
+modules:
+  enabled:
+    - \JasonBenett\CodeceptionModuleWiremock\Module\Wiremock:
+        host: 127.0.0.1
+        port: 8080
+        httpClient: !php/const GLOBALS['wiremock_http_client']
+        requestFactory: !php/const GLOBALS['wiremock_request_factory']
+        streamFactory: !php/const GLOBALS['wiremock_stream_factory']
+```
+
+### All Configuration Options
+
+```yaml
+host: 127.0.0.1                  # Required: WireMock server host
+port: 8080                       # Required: WireMock server port
+protocol: http                   # Optional: Protocol (http or https)
+cleanupBefore: test              # Optional: When to cleanup: 'never', 'test', or 'suite'
+preserveFileMappings: true       # Optional: Keep file-based stubs on reset
+adminPath: /__admin              # Optional: Admin API path
+httpClient: null                 # Optional: PSR-18 ClientInterface instance
+requestFactory: null             # Optional: PSR-17 RequestFactoryInterface instance
+streamFactory: null              # Optional: PSR-17 StreamFactoryInterface instance
+```
+
+**Note:** If `httpClient`, `requestFactory`, or `streamFactory` are not provided, the module will attempt to auto-create Guzzle instances if available.
 
 ## Available Methods
 
@@ -477,7 +556,7 @@ Every push and pull request is automatically tested via GitHub Actions across mu
 - ✅ **PHP 8.2, 8.3, 8.4** - Full compatibility testing
 - ✅ **PHPStan Level Max** - Zero errors in static analysis
 - ✅ **PER Coding Style 3.0** - Strict code style compliance
-- ✅ **100% Test Coverage** - 26 passing tests (15 unit + 11 functional)
+- ✅ **Testing** - Unit and Functional
 - ✅ **WireMock Integration Tests** - Tests against real WireMock server
 
 ### Local Development
@@ -501,7 +580,7 @@ composer test:functional
 ### Code Quality Metrics
 
 - **PHPStan**: Max level, zero errors
-- **Code Coverage**: 100% with Codecov reporting
+- **Code Coverage**: with Codecov reporting
 - **Code Style**: PER Coding Style 3.0 (successor to PSR-12)
 - **Type Safety**: Full PHPDoc annotations with array shapes
 - **Documentation**: Comprehensive inline documentation
