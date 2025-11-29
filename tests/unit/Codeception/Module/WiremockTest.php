@@ -9,6 +9,7 @@ use Codeception\Test\Unit;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Response;
 use JasonBenett\CodeceptionModuleWiremock\Exception\RequestVerificationException;
 use JasonBenett\CodeceptionModuleWiremock\Exception\WiremockException;
@@ -17,40 +18,51 @@ use ReflectionClass;
 
 final class WiremockTest extends Unit
 {
-    protected static array $config = [
-        'host' => '127.0.0.1',
-        'port' => 8080,
-    ];
-
     protected ?Wiremock $module = null;
     protected MockHandler $mockHandler;
+    protected Client $client;
+    protected HttpFactory $httpFactory;
 
     protected function _setUp(): void
     {
-        $container = $this->createMock(ModuleContainer::class);
-        $this->module = new Wiremock($container);
-        $this->module->_setConfig(self::$config);
-
-        // Mock HTTP client
+        // Mock HTTP client with PSR-18
         $this->mockHandler = new MockHandler();
         $handlerStack = HandlerStack::create($this->mockHandler);
-        $client = new Client(['handler' => $handlerStack]);
+        $this->client = new Client(['handler' => $handlerStack]);
 
-        // Inject mocked client
-        $this->injectMockedClient($client);
-    }
+        // PSR-17 factories (Guzzle's HttpFactory implements both RequestFactory and StreamFactory)
+        $this->httpFactory = new HttpFactory();
 
-    protected function injectMockedClient(Client $client): void
-    {
+        $config = [
+            'host' => '127.0.0.1',
+            'port' => 8080,
+            'httpClient' => $this->client,
+            'requestFactory' => $this->httpFactory,
+            'streamFactory' => $this->httpFactory,
+        ];
+
+        $container = $this->createMock(ModuleContainer::class);
+        $this->module = new Wiremock($container);
+        $this->module->_setConfig($config);
+
+        // Set baseUrl via reflection (needed for initialization without health check)
         $reflection = new ReflectionClass($this->module);
-        $property = $reflection->getProperty('client');
-        $property->setAccessible(true);
-        $property->setValue($this->module, $client);
-
-        // Also set baseUrl
         $baseUrlProperty = $reflection->getProperty('baseUrl');
         $baseUrlProperty->setAccessible(true);
         $baseUrlProperty->setValue($this->module, 'http://127.0.0.1:8080/__admin');
+
+        // Set PSR clients via reflection
+        $httpClientProperty = $reflection->getProperty('httpClient');
+        $httpClientProperty->setAccessible(true);
+        $httpClientProperty->setValue($this->module, $this->client);
+
+        $requestFactoryProperty = $reflection->getProperty('requestFactory');
+        $requestFactoryProperty->setAccessible(true);
+        $requestFactoryProperty->setValue($this->module, $this->httpFactory);
+
+        $streamFactoryProperty = $reflection->getProperty('streamFactory');
+        $streamFactoryProperty->setAccessible(true);
+        $streamFactoryProperty->setValue($this->module, $this->httpFactory);
     }
 
     public function testHaveHttpStubForCreatesGetStub(): void
