@@ -53,7 +53,7 @@ composer install
 ### Start WireMock Server
 
 ```bash
-docker-compose up -d
+docker run -d -p 8080:8080 wiremock/wiremock:latest
 ```
 
 Verify WireMock is running:
@@ -93,7 +93,7 @@ composer test
 Functional tests require WireMock to be running:
 
 ```bash
-docker-compose up -d
+docker run -d -p 8080:8080 wiremock/wiremock:latest
 composer test:functional
 ```
 

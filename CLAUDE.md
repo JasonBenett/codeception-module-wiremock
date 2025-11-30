@@ -62,9 +62,10 @@ composer cs-fix                # Fix code style issues
 
 ### WireMock Server
 ```bash
-docker-compose up -d           # Start WireMock server on port 8080
-docker-compose down            # Stop WireMock server
-docker-compose logs wiremock   # View WireMock logs
+docker run -d -p 8080:8080 wiremock/wiremock:latest   # Start WireMock server on port 8080
+docker ps | grep wiremock                             # Check if WireMock is running
+docker logs <container-id>                            # View WireMock logs
+docker stop <container-id>                            # Stop WireMock server
 ```
 
 ## Development Workflow & Conventions
@@ -249,13 +250,13 @@ modules:
 
 1. Start WireMock server:
    ```bash
-   docker-compose up -d
+   docker run -d -p 8080:8080 wiremock/wiremock:latest
    ```
 
-2. Wait for WireMock to be healthy:
+2. Wait for WireMock to be ready:
    ```bash
-   docker-compose ps
-   # Should show "healthy" status
+   curl http://localhost:8080/__admin/health
+   # Should return: {"status":"OK"}
    ```
 
 3. Run unit tests (don't require WireMock):
@@ -277,7 +278,7 @@ modules:
 
 - Use `grabAllRequests()` to see all requests made
 - Use `grabUnmatchedRequests()` to see requests that didn't match any stub
-- Check WireMock logs: `docker-compose logs wiremock`
+- Check WireMock logs: `docker logs <container-id>`
 - Near-miss analysis is automatically included in verification error messages
 
 ## Common Patterns

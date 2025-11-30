@@ -6,6 +6,7 @@ namespace Tests\Unit\Codeception\Module;
 
 use Codeception\Lib\ModuleContainer;
 use Codeception\Test\Unit;
+use Generator;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
@@ -269,5 +270,83 @@ final class WiremockTest extends Unit
 
         // Should not throw exception
         $this->assertTrue(true);
+    }
+
+    /**
+     * Test determineUrlKey method for proper url vs urlPath selection
+     *
+     * @dataProvider urlKeyDataProvider
+     */
+    public function testDetermineUrlKey(array $matchers, string $expectedKey): void
+    {
+        $reflection = new ReflectionClass($this->module);
+        $method = $reflection->getMethod('determineUrlKey');
+
+        $result = $method->invoke($this->module, $matchers);
+
+        $this->assertSame($expectedKey, $result);
+    }
+
+    /**
+     * Data provider for testDetermineUrlKey
+     *
+     * @return Generator<string, array{matchers: array<string, mixed>, expectedKey: string}>
+     */
+    public static function urlKeyDataProvider(): Generator
+    {
+        yield 'no matchers - uses url' => [
+            'matchers' => [],
+            'expectedKey' => 'url',
+        ];
+
+        yield 'only method matcher - uses url' => [
+            'matchers' => ['method' => 'GET'],
+            'expectedKey' => 'url',
+        ];
+
+        yield 'with queryParameters - uses urlPath' => [
+            'matchers' => [
+                'queryParameters' => ['q' => ['equalTo' => 'London']],
+            ],
+            'expectedKey' => 'urlPath',
+        ];
+
+        yield 'with queryParameters and other matchers - uses urlPath' => [
+            'matchers' => [
+                'queryParameters' => ['q' => ['equalTo' => 'London']],
+                'headers' => ['Content-Type' => ['equalTo' => 'application/json']],
+            ],
+            'expectedKey' => 'urlPath',
+        ];
+
+        yield 'explicit urlPath overrides - uses url (respects user choice)' => [
+            'matchers' => [
+                'queryParameters' => ['q' => ['equalTo' => 'London']],
+                'urlPath' => '/api/weather',
+            ],
+            'expectedKey' => 'url',
+        ];
+
+        yield 'explicit urlPattern overrides - uses url (respects user choice)' => [
+            'matchers' => [
+                'queryParameters' => ['q' => ['equalTo' => 'London']],
+                'urlPattern' => '/api/.*',
+            ],
+            'expectedKey' => 'url',
+        ];
+
+        yield 'only bodyPatterns - uses url' => [
+            'matchers' => [
+                'bodyPatterns' => [['equalToJson' => '{"name":"test"}']],
+            ],
+            'expectedKey' => 'url',
+        ];
+
+        yield 'only headers - uses url' => [
+            'matchers' => [
+                'headers' => ['Authorization' => ['matches' => 'Bearer .*']],
+            ],
+            'expectedKey' => 'url',
+        ];
     }
 }
