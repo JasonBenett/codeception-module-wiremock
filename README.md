@@ -473,22 +473,22 @@ class ShoppingCartCest
 
 ## Local Development
 
-### Using Docker Compose
+### Using Docker
 
-The project includes a `docker-compose.yml` for easy local development:
+You can run WireMock using Docker:
 
 ```bash
 # Start WireMock
-docker-compose up -d
+docker run -d -p 8080:8080 wiremock/wiremock:latest
 
 # Check status
-docker-compose ps
+docker ps | grep wiremock
 
 # View logs
-docker-compose logs -f wiremock
+docker logs <container-id>
 
 # Stop WireMock
-docker-compose down
+docker stop <container-id>
 ```
 
 ### Running Tests
@@ -501,7 +501,7 @@ composer install
 composer test
 
 # Start WireMock
-docker-compose up -d
+docker run -d -p 8080:8080 wiremock/wiremock:latest
 
 # Build Codeception support classes
 vendor/bin/codecept build

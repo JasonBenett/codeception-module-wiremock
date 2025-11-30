@@ -138,10 +138,12 @@ class Wiremock extends Module
         array        $headers = [],
         array        $requestMatchers = [],
     ): string {
+        $urlKey = $this->determineUrlKey($requestMatchers);
+
         $mapping = [
             'request' => array_merge([
                 'method' => strtoupper($method),
-                'url' => $url,
+                $urlKey => $url,
             ], $requestMatchers),
             'response' => [
                 'status' => $status,
@@ -187,9 +189,11 @@ class Wiremock extends Module
         string $url,
         array  $additionalMatchers = [],
     ): void {
+        $urlKey = $this->determineUrlKey($additionalMatchers);
+
         $pattern = array_merge([
             'method' => strtoupper($method),
-            'url' => $url,
+            $urlKey => $url,
         ], $additionalMatchers);
 
         $count = $this->grabRequestCount($pattern);
@@ -227,9 +231,11 @@ class Wiremock extends Module
         string $url,
         array  $additionalMatchers = [],
     ): void {
+        $urlKey = $this->determineUrlKey($additionalMatchers);
+
         $pattern = array_merge([
             'method' => strtoupper($method),
-            'url' => $url,
+            $urlKey => $url,
         ], $additionalMatchers);
 
         $count = $this->grabRequestCount($pattern);
@@ -607,5 +613,31 @@ class Wiremock extends Module
         }
 
         $this->streamFactory = $streamFactory;
+    }
+
+    /**
+     * Determine whether to use 'url' or 'urlPath' based on request matchers
+     *
+     * When queryParameters are specified in request matchers, WireMock requires
+     * 'urlPath' instead of 'url' to match the path separately from query params.
+     *
+     * @param array<string, mixed> $matchers Request matcher array
+     *
+     * @return string Either 'url' or 'urlPath'
+     */
+    private function determineUrlKey(array $matchers): string
+    {
+        // If queryParameters are present and user hasn't explicitly set urlPath/urlPattern,
+        // use 'urlPath' for path-only matching (allowing separate query param matching)
+        if (
+            isset($matchers['queryParameters'])
+            && !isset($matchers['urlPath'])
+            && !isset($matchers['urlPattern'])
+        ) {
+            return 'urlPath';
+        }
+
+        // Default to 'url' for exact URL matching
+        return 'url';
     }
 }
